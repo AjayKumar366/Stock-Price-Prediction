@@ -7,5 +7,4 @@ gunicorn
 yfinance
 numpy
 scikit-learn
-tensorflow
 joblib
