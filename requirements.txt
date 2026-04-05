@@ -4,7 +4,6 @@ plotly
 requests
 dash-bootstrap-components
 gunicorn
-yfinance==0.2.37
 numpy
 scikit-learn
 tensorflow
