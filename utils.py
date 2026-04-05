@@ -15,15 +15,34 @@ def get_company_info(symbol):
     return data
 
 @lru_cache(maxsize=20)
-def get_stock_data(symbol):
+def get_stock_data(ticker):
     try:
-        df = yf.download(symbol, period="1y")
+        ticker = ticker.strip().upper()
+
+        df = yf.download(
+            ticker,
+            period="1y",
+            interval="1d",
+            progress=False,
+            threads=False,
+        )
 
         if df.empty:
+            df = yf.download(
+                ticker + ".NS",
+                period="1y",
+                interval="1d",
+                progress=False,
+                threads=False,
+            )
+
+        if df.empty:
+            print("No data found")
             return pd.DataFrame()
 
+        # 🔥 FIX MULTIINDEX
         if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+            df.columns = [col[0] for col in df.columns]
 
         df.reset_index(inplace=True)
         return df
