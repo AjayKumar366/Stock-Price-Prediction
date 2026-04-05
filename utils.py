@@ -25,6 +25,7 @@ def get_stock_data(ticker):
             interval="1d",
             progress=False,
             threads=False,
+            auto_adjust=True
         )
 
         if df.empty:
@@ -34,6 +35,7 @@ def get_stock_data(ticker):
                 interval="1d",
                 progress=False,
                 threads=False,
+                auto_adjust=True
             )
 
         if df.empty:
