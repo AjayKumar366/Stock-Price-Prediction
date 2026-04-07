@@ -8,7 +8,7 @@ import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
 import warnings
 from utils import get_stock_data
-MODEL_PATH = "lstm_model.pkl"
+MODEL_PATH = "lstm_model.h5"
 
 
 def prediction(stock, n_days, df=None):
@@ -37,7 +37,7 @@ def prediction(stock, n_days, df=None):
 
     #  Load or train model
     if os.path.exists(MODEL_PATH):
-        model = joblib.load(MODEL_PATH)
+        model = tf.keras.models.load_model(MODEL_PATH)
     else:
         model = tf.keras.Sequential([
             tf.keras.layers.LSTM(50, return_sequences=True, input_shape=(lookback, 1)),
@@ -47,7 +47,7 @@ def prediction(stock, n_days, df=None):
         model.compile(optimizer='adam', loss='mean_squared_error')
         model.fit(X, y, epochs=10, batch_size=16, verbose=0)
 
-        joblib.dump(model, MODEL_PATH)
+        model.save(MODEL_PATH)
 
     # prediction
     last_sequence = scaled_data[-lookback:, 0]
