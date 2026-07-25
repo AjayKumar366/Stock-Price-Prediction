@@ -92,7 +92,7 @@ app.layout = html.Div([
                     className="date-single"
                 ),
 
-                html.Span("→", className="date-arrow"),
+                html.Span("->", className="date-arrow"),
 
                 dcc.DatePickerSingle(
                     id='end-date',
@@ -290,21 +290,39 @@ def indicators(n, start_date, end_date, val):
                State("dropdown_tickers", "value")])
 
 def forecast(n, n_days, val):
-    if n == None:
+    if n is None:
         return [""]
-    if val == None:
-        raise PreventUpdate
-    if n_days == None:
-        raise PreventUpdate
+
+    if not val:
+        return [html.Div("Enter a stock code before forecasting.")]
+
+    if n_days is None:
+        return [html.Div("Enter the number of forecast days.")]
+
     try:
+        n_days = int(n_days)
+        if n_days < 1:
+            return [html.Div("Forecast days must be at least 1.")]
+
         df = cached_data.get(val)
-        fig = prediction(val, int(n_days) + 1, df)
+        if df is None:
+            df = get_stock_data(val)
+            cached_data[val] = df
+
+        if df.empty or "Close" not in df.columns:
+            return [html.Div("No stock data available for this forecast.")]
+
+        fig = prediction(val, n_days + 1, df)
     except Exception as e:
         return [html.Div(f"Error: {str(e)}")]
-    return [dcc.Graph(figure=fig, 
-    config={
-        'doubleClick': 'autosize'
-    })]
+
+    return [dcc.Graph(
+        figure=fig,
+        config={
+            'doubleClick': 'autosize'
+        }
+    )]
 
 if __name__ == '__main__':
     app.run(debug=True)
+
