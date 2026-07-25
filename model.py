@@ -1,14 +1,75 @@
-import joblib
 import os
 from datetime import date, timedelta
 import numpy as np
-import pandas as pd
 import plotly.graph_objs as go
 import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
 import warnings
 from utils import get_stock_data
+
 MODEL_PATH = "lstm_model.h5"
+TFLITE_MODEL_PATH = "lstm_model_float16.tflite"
+
+
+def build_lstm_model(lookback):
+    model = tf.keras.Sequential([
+        tf.keras.layers.LSTM(50, return_sequences=True, input_shape=(lookback, 1)),
+        tf.keras.layers.LSTM(50),
+        tf.keras.layers.Dense(1)
+    ])
+    model.compile(optimizer='adam', loss='mean_squared_error')
+    return model
+
+
+def convert_to_float16_tflite(model, output_path=TFLITE_MODEL_PATH):
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    converter.target_spec.supported_types = [tf.float16]
+    converter.target_spec.supported_ops = [
+        tf.lite.OpsSet.TFLITE_BUILTINS,
+        tf.lite.OpsSet.SELECT_TF_OPS,
+    ]
+    converter._experimental_lower_tensor_list_ops = False
+    converter.experimental_enable_resource_variables = True
+
+    tflite_model = converter.convert()
+
+    with open(output_path, "wb") as file:
+        file.write(tflite_model)
+
+
+def ensure_model_artifacts(X, y, lookback):
+    if os.path.exists(TFLITE_MODEL_PATH):
+        return None
+
+    if os.path.exists(MODEL_PATH):
+        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        model.compile(optimizer='adam', loss='mean_squared_error')
+    else:
+        model = build_lstm_model(lookback)
+        model.fit(X, y, epochs=10, batch_size=16, verbose=0)
+        model.save(MODEL_PATH)
+
+    convert_to_float16_tflite(model)
+    return model
+
+
+def create_tflite_predictor(model_path=TFLITE_MODEL_PATH):
+    interpreter = tf.lite.Interpreter(model_path=model_path)
+    interpreter.allocate_tensors()
+
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    input_index = input_details[0]["index"]
+    output_index = output_details[0]["index"]
+    input_dtype = input_details[0]["dtype"]
+
+    def predict(input_sequence):
+        interpreter.set_tensor(input_index, input_sequence.astype(input_dtype))
+        interpreter.invoke()
+        return interpreter.get_tensor(output_index)
+
+    return predict
 
 
 def prediction(stock, n_days, df=None):
@@ -35,26 +96,20 @@ def prediction(stock, n_days, df=None):
     X, y = np.array(X), np.array(y)
     X = X.reshape(X.shape[0], X.shape[1], 1)
 
-    #  Load or train model
-    if os.path.exists(MODEL_PATH):
-        model = tf.keras.models.load_model(MODEL_PATH)
-    else:
-        model = tf.keras.Sequential([
-            tf.keras.layers.LSTM(50, return_sequences=True, input_shape=(lookback, 1)),
-            tf.keras.layers.LSTM(50),
-            tf.keras.layers.Dense(1)
-        ])
-        model.compile(optimizer='adam', loss='mean_squared_error')
-        model.fit(X, y, epochs=10, batch_size=16, verbose=0)
-
-        model.save(MODEL_PATH)
+    # Create the compact float16 TFLite model when it is missing.
+    model = ensure_model_artifacts(X, y, lookback)
+    tflite_predict = create_tflite_predictor() if os.path.exists(TFLITE_MODEL_PATH) else None
 
     # prediction
     last_sequence = scaled_data[-lookback:, 0]
     predictions = []
 
     for _ in range(n_days - 1):
-        pred = model.predict(last_sequence.reshape(1, lookback, 1), verbose=0)
+        model_input = last_sequence.reshape(1, lookback, 1).astype(np.float32)
+        if tflite_predict is not None:
+            pred = tflite_predict(model_input)
+        else:
+            pred = model.predict(model_input, verbose=0)
         predictions.append(pred[0, 0])
         last_sequence = np.append(last_sequence[1:], pred[0, 0])
 
@@ -64,6 +119,6 @@ def prediction(stock, n_days, df=None):
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=dates, y=predictions.flatten(), mode='lines+markers'))
-    fig.update_layout(template="plotly_dark",title_x=0.5,hovermode="x unified")
+    fig.update_layout(template="plotly_dark", title_x=0.5, hovermode="x unified")
 
     return fig
