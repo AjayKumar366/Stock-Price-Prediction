@@ -11,26 +11,38 @@ MODEL_PATH = "lstm_model.h5"
 TFLITE_MODEL_PATH = "lstm_model_float16.tflite"
 
 
-def build_lstm_model(lookback):
+def build_lstm_model(lookback, unroll=False):
     model = tf.keras.Sequential([
-        tf.keras.layers.LSTM(50, return_sequences=True, input_shape=(lookback, 1)),
-        tf.keras.layers.LSTM(50),
+        tf.keras.layers.LSTM(
+            50,
+            return_sequences=True,
+            input_shape=(lookback, 1),
+            unroll=unroll,
+        ),
+        tf.keras.layers.LSTM(50, unroll=unroll),
         tf.keras.layers.Dense(1)
     ])
     model.compile(optimizer='adam', loss='mean_squared_error')
     return model
 
 
-def convert_to_float16_tflite(model, output_path=TFLITE_MODEL_PATH):
-    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+def tflite_uses_select_tf_ops(model_path=TFLITE_MODEL_PATH):
+    if not os.path.exists(model_path):
+        return False
+
+    with open(model_path, "rb") as file:
+        return b"Flex" in file.read()
+
+
+def convert_to_float16_tflite(model, lookback, output_path=TFLITE_MODEL_PATH):
+    # Unrolled LSTMs convert to built-in TFLite ops and avoid FlexTensorList ops.
+    tflite_ready_model = build_lstm_model(lookback, unroll=True)
+    tflite_ready_model.set_weights(model.get_weights())
+
+    converter = tf.lite.TFLiteConverter.from_keras_model(tflite_ready_model)
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
     converter.target_spec.supported_types = [tf.float16]
-    converter.target_spec.supported_ops = [
-        tf.lite.OpsSet.TFLITE_BUILTINS,
-        tf.lite.OpsSet.SELECT_TF_OPS,
-    ]
-    converter._experimental_lower_tensor_list_ops = False
-    converter.experimental_enable_resource_variables = True
+    converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS]
 
     tflite_model = converter.convert()
 
@@ -39,7 +51,7 @@ def convert_to_float16_tflite(model, output_path=TFLITE_MODEL_PATH):
 
 
 def ensure_model_artifacts(X, y, lookback):
-    if os.path.exists(TFLITE_MODEL_PATH):
+    if os.path.exists(TFLITE_MODEL_PATH) and not tflite_uses_select_tf_ops():
         return None
 
     if os.path.exists(MODEL_PATH):
@@ -50,7 +62,7 @@ def ensure_model_artifacts(X, y, lookback):
         model.fit(X, y, epochs=10, batch_size=16, verbose=0)
         model.save(MODEL_PATH)
 
-    convert_to_float16_tflite(model)
+    convert_to_float16_tflite(model, lookback)
     return model
 
 
@@ -96,7 +108,7 @@ def prediction(stock, n_days, df=None):
     X, y = np.array(X), np.array(y)
     X = X.reshape(X.shape[0], X.shape[1], 1)
 
-    # Create the compact float16 TFLite model when it is missing.
+    # Create or replace the compact float16 TFLite model when needed.
     model = ensure_model_artifacts(X, y, lookback)
     tflite_predict = create_tflite_predictor() if os.path.exists(TFLITE_MODEL_PATH) else None
 
