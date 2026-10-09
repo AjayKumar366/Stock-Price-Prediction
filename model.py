@@ -12,17 +12,19 @@ TFLITE_MODEL_PATH = "lstm_model_float16.tflite"
 
 
 def build_lstm_model(lookback, unroll=False):
-    model = tf.keras.Sequential([
-        tf.keras.layers.LSTM(
-            50,
-            return_sequences=True,
-            input_shape=(lookback, 1),
-            unroll=unroll,
-        ),
-        tf.keras.layers.LSTM(50, unroll=unroll),
-        tf.keras.layers.Dense(1)
-    ])
-    model.compile(optimizer='adam', loss='mean_squared_error')
+    model = tf.keras.Sequential(
+        [
+            tf.keras.layers.LSTM(
+                50,
+                return_sequences=True,
+                input_shape=(lookback, 1),
+                unroll=unroll,
+            ),
+            tf.keras.layers.LSTM(50, unroll=unroll),
+            tf.keras.layers.Dense(1),
+        ]
+    )
+    model.compile(optimizer="adam", loss="mean_squared_error")
     return model
 
 
@@ -56,7 +58,7 @@ def ensure_model_artifacts(X, y, lookback):
 
     if os.path.exists(MODEL_PATH):
         model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-        model.compile(optimizer='adam', loss='mean_squared_error')
+        model.compile(optimizer="adam", loss="mean_squared_error")
     else:
         model = build_lstm_model(lookback)
         model.fit(X, y, epochs=10, batch_size=16, verbose=0)
@@ -85,7 +87,7 @@ def create_tflite_predictor(model_path=TFLITE_MODEL_PATH):
 
 
 def prediction(stock, n_days, df=None):
-    warnings.filterwarnings('ignore')
+    warnings.filterwarnings("ignore")
 
     if df is None:
         df = get_stock_data(stock)
@@ -93,7 +95,7 @@ def prediction(stock, n_days, df=None):
     if df.empty:
         raise ValueError("No data found")
 
-    data = df['Close'].values.reshape(-1, 1)
+    data = df["Close"].values.reshape(-1, 1)
 
     scaler = MinMaxScaler(feature_range=(0, 1))
     scaled_data = scaler.fit_transform(data)
@@ -102,7 +104,7 @@ def prediction(stock, n_days, df=None):
     X, y = [], []
 
     for i in range(lookback, len(scaled_data)):
-        X.append(scaled_data[i-lookback:i, 0])
+        X.append(scaled_data[i - lookback : i, 0])
         y.append(scaled_data[i, 0])
 
     X, y = np.array(X), np.array(y)
@@ -110,7 +112,9 @@ def prediction(stock, n_days, df=None):
 
     # Create or replace the compact float16 TFLite model when needed.
     model = ensure_model_artifacts(X, y, lookback)
-    tflite_predict = create_tflite_predictor() if os.path.exists(TFLITE_MODEL_PATH) else None
+    tflite_predict = (
+        create_tflite_predictor() if os.path.exists(TFLITE_MODEL_PATH) else None
+    )
 
     # prediction
     last_sequence = scaled_data[-lookback:, 0]
@@ -130,7 +134,9 @@ def prediction(stock, n_days, df=None):
     dates = [date.today() + timedelta(days=i) for i in range(1, n_days)]
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=dates, y=predictions.flatten(), mode='lines+markers'))
-    fig.update_layout(template="plotly_dark", title_x=0.5, hovermode="x unified")
+    fig.add_trace(go.Scatter(x=dates, y=predictions.flatten(), mode="lines+markers"))
+    fig.update_layout(
+        title="Forecast", template="plotly_dark", title_x=0.5, hovermode="x unified"
+    )
 
     return fig

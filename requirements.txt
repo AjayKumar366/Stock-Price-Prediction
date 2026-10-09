@@ -1,10 +1,12 @@
-dash
-pandas
-plotly
-requests
-dash-bootstrap-components
-gunicorn
-numpy
-scikit-learn
-tensorflow
-joblib
+# Tested together on Python 3.10.
+# TensorFlow 2.15 requires NumPy < 2.0, so NumPy is deliberately pinned.
+dash==2.17.1
+dash-bootstrap-components==1.6.0
+gunicorn==22.0.0
+joblib==1.4.2
+numpy==1.26.4
+pandas==2.2.2
+plotly==5.24.1
+requests==2.32.3
+scikit-learn==1.5.2
+tensorflow==2.15.1
